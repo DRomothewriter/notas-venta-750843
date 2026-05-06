@@ -1,0 +1,134 @@
+name: CI/CD - Notas Venta
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'Dockerfile'
+      - '.github/workflows/notas-venta.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 004533149070.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: notas-venta-750843
+  CONTAINER_NAME: notas-venta
+  CONTAINER_PORT: 8082
+
+jobs:
+  build:
+    name: Build (compilar TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Compile TypeScript
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: notas-venta-dist
+          path: dist/
+          retention-days: 1
+
+  docker:
+    name: Docker (build & push a ECR)
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tag
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA::7}-${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Build, tag and push
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build -f Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "Imagen publicada: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+  deploy:
+    name: Deploy (desplegar en EC2)
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          APP_AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          APP_AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          CATALOGOS_URL: ${{ secrets.CATALOGOS_URL }}
+          NOTIFICACIONES_URL: ${{ secrets.NOTIFICACIONES_URL }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+          IMAGE_TAG: ${{ needs.docker.outputs.image_tag }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: APP_AWS_ACCESS_KEY,APP_AWS_SECRET_KEY,APP_AWS_SESSION_TOKEN,CATALOGOS_URL,NOTIFICACIONES_URL,BASE_URL,IMAGE_TAG
+          script: |
+            set -e
+            export AWS_ACCESS_KEY_ID="$APP_AWS_ACCESS_KEY"
+            export AWS_SECRET_ACCESS_KEY="$APP_AWS_SECRET_KEY"
+            export AWS_SESSION_TOKEN="$APP_AWS_SESSION_TOKEN"
+            aws ecr get-login-password --region us-east-1 \
+              | docker login --username AWS --password-stdin 004533149070.dkr.ecr.us-east-1.amazonaws.com
+            docker pull 004533149070.dkr.ecr.us-east-1.amazonaws.com/notas-venta-750843:$IMAGE_TAG
+            docker stop notas-venta 2>/dev/null || true
+            docker rm notas-venta 2>/dev/null || true
+            docker run -d --name notas-venta -p 8082:8082 --restart unless-stopped \
+              --log-driver=awslogs \
+              --log-opt awslogs-region=us-east-1 \
+              --log-opt awslogs-group=/examen2/notas-venta \
+              --log-opt awslogs-create-group=true \
+              -e APP_ENV=production \
+              -e PORT=8082 \
+              -e EXPEDIENTE=750843 \
+              -e AWS_REGION=us-east-1 \
+              -e AWS_ACCESS_KEY_ID="$APP_AWS_ACCESS_KEY" \
+              -e AWS_SECRET_ACCESS_KEY="$APP_AWS_SECRET_KEY" \
+              -e AWS_SESSION_TOKEN="$APP_AWS_SESSION_TOKEN" \
+              -e SALES_TABLE=sales \
+              -e ITEMS_TABLE=sale_items \
+              -e CATALOGOS_URL="$CATALOGOS_URL" \
+              -e NOTIFICACIONES_URL="$NOTIFICACIONES_URL" \
+              -e BASE_URL="$BASE_URL" \
+              -e CW_NAMESPACE=Examen2/750843 \
+              -e CW_ENABLED=true \
+              004533149070.dkr.ecr.us-east-1.amazonaws.com/notas-venta-750843:$IMAGE_TAG
+            docker ps --filter name=notas-venta

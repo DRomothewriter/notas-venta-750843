@@ -1,0 +1,24 @@
+{
+  "_comment_general": "Alarma de CloudWatch para el módulo notas-venta. Esta es la métrica/umbral que más cuesta justificar, así que documento la decisión aquí mismo: vigilo la TASA de errores 5xx en POST /sales. El umbral es 'más de 3 errores 5xx en una ventana de 5 minutos'.",
+  "_comment_threshold_rationale": "Por qué 3 en 5 minutos y no otro número: (1) En operación normal este endpoint NO debería devolver 5xx — los 5xx implican fallas en DynamoDB, S3 o en los servicios upstream (catálogos, notificaciones), no errores controlados de validación (esos son 4xx). (2) El tráfico esperado de un sistema de notas de venta no es masivo (no es un e-commerce con miles de RPM); 5 errores en 5 minutos ya indica un problema sostenido, no un parpadeo aislado. (3) Pongo el umbral en >3 (es decir, dispara con 4 o más en la ventana) para tolerar un fallo transitorio puntual sin disparar la página, pero alertar si el problema persiste.",
+
+  "AlarmName": "examen2-notas-venta-5xx-spike",
+  "AlarmDescription": "Dispara cuando hay más de 3 errores 5xx en POST /sales en una ventana de 5 minutos en el ambiente de producción.",
+  "Namespace": "Examen2/750843",
+  "MetricName": "HttpRequestCount",
+  "Statistic": "Sum",
+  "Dimensions": [
+    { "Name": "Environment",  "Value": "production" },
+    { "Name": "Route",        "Value": "POST /sales" },
+    { "Name": "StatusFamily", "Value": "5xx" }
+  ],
+  "Period": 60,
+  "EvaluationPeriods": 5,
+  "DatapointsToAlarm": 1,
+  "Threshold": 3,
+  "ComparisonOperator": "GreaterThanThreshold",
+  "TreatMissingData": "notBreaching",
+  "ActionsEnabled": true,
+  "_comment_AlarmActions": "El ARN del topic SNS donde se publica la alarma se inyecta al crear la alarma con AWS CLI (ver create-alarm.sh). Reutilizamos el mismo topic que usa el módulo de notificaciones para mandar correos a los suscriptores.",
+  "AlarmActions": ["${SNS_TOPIC_ARN}"]
+}

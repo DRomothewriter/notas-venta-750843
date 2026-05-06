@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "baseUrl": "src",
+        "outDir": "dist",
+        "target": "esnext",
+        "module": "commonjs",
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "allowSyntheticDefaultImports": true,
+        "strict": false,
+        "skipLibCheck": true
+    },
+    "include": ["src/**/*"]
+}

@@ -1,0 +1,151 @@
+{
+  "_comment_general": "Dashboard de CloudWatch para el módulo notas-venta del Examen 2 (expediente 750843). Para importarlo: AWS Console → CloudWatch → Dashboards → Create dashboard → 'View/edit source' (icono </>) → pegar este JSON. El dashboard contiene los 2 widgets que pide el enunciado: percentiles p50/p90/p99 del tiempo de ejecución, y comportamiento (counts por familia 2xx/4xx/5xx).",
+  "widgets": [
+    {
+      "_comment": "Widget 1 — Percentiles p50/p90/p99 de duración del POST /sales. Cumple requisito 9.i del enunciado. Calculados por CloudWatch a partir del histograma de samples de HttpRequestDurationMs.",
+      "type": "metric",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "Examen2/750843",
+            "HttpRequestDurationMs",
+            "Environment",
+            "production",
+            "Route",
+            "POST /sales",
+            "StatusFamily",
+            "2xx",
+            { "stat": "p50", "label": "p50" }
+          ],
+          [
+            "...",
+            { "stat": "p90", "label": "p90" }
+          ],
+          [
+            "...",
+            { "stat": "p99", "label": "p99" }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "title": "Latencia POST /sales (p50, p90, p99) — production",
+        "yAxis": {
+          "left": {
+            "label": "Milisegundos",
+            "showUnits": false
+          }
+        }
+      }
+    },
+    {
+      "_comment": "Widget 2 — Comportamiento HTTP del módulo, contando requests por familia de status. Cumple requisito 9.ii del enunciado. Permite ver de un vistazo si el servicio está sano (mayoría 2xx) o con problemas (picos en 4xx/5xx).",
+      "type": "metric",
+      "x": 12,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "Examen2/750843",
+            "HttpRequestCount",
+            "Environment",
+            "production",
+            "Route",
+            "POST /sales",
+            "StatusFamily",
+            "2xx",
+            { "stat": "Sum", "label": "2xx OK" }
+          ],
+          [
+            "...",
+            "StatusFamily",
+            "4xx",
+            { "stat": "Sum", "label": "4xx Client Error" }
+          ],
+          [
+            "...",
+            "StatusFamily",
+            "5xx",
+            { "stat": "Sum", "label": "5xx Server Error" }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": true,
+        "region": "us-east-1",
+        "period": 60,
+        "title": "Comportamiento HTTP POST /sales (2xx vs 4xx vs 5xx) — production",
+        "yAxis": {
+          "left": {
+            "label": "Requests por minuto",
+            "showUnits": false
+          }
+        }
+      }
+    },
+    {
+      "_comment": "Widget extra 1 — Vista general del servicio con todas las rutas instrumentadas. Sirve para detectar de un golpe qué endpoint está fallando.",
+      "type": "metric",
+      "x": 0,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            { "expression": "SEARCH('Namespace=\"Examen2/750843\" MetricName=\"HttpRequestCount\" Environment=\"production\" StatusFamily=\"5xx\"', 'Sum', 60)", "label": "5xx por ruta", "id": "e1" }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "title": "Errores 5xx por ruta — production"
+      }
+    },
+    {
+      "_comment": "Widget extra 2 — Comparativa local vs production con la misma métrica. Confirma que la dimensión Environment está discriminando ambientes (requisito 7.iii).",
+      "type": "metric",
+      "x": 12,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "Examen2/750843",
+            "HttpRequestCount",
+            "Environment",
+            "local",
+            "Route",
+            "POST /sales",
+            "StatusFamily",
+            "2xx",
+            { "stat": "Sum", "label": "local 2xx" }
+          ],
+          [
+            "...",
+            "Environment",
+            "production",
+            ".",
+            ".",
+            ".",
+            ".",
+            { "stat": "Sum", "label": "production 2xx" }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "title": "POST /sales 2xx — local vs production"
+      }
+    }
+  ]
+}
