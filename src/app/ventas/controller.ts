@@ -5,6 +5,12 @@ import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { db } from '../services/dynamo';
 import { generateSalePDF } from './pdf-generator';
 import { fetchClient, fetchProduct, notifySaleCreated } from '../services/upstream';
+import {
+	isNonNegativeNumber,
+	isPlainObject,
+	isPositiveNumber,
+	isUuid,
+} from '../lib/validate';
 
 import {
 	S3Client,
@@ -28,13 +34,36 @@ const s3 = new S3Client({
 		: undefined,
 });
 
+function validateSaleCreate(body: unknown): string | null {
+	if (!isPlainObject(body)) return 'Body must be a JSON object';
+	if (!isUuid(body.clientId)) return 'clientId must be a valid UUID';
+	if (!Array.isArray(body.items) || body.items.length === 0) {
+		return 'items must be a non-empty array';
+	}
+	for (let i = 0; i < body.items.length; i++) {
+		const item = body.items[i];
+		if (!isPlainObject(item)) return `items[${i}] must be an object`;
+		if (!isUuid(item.productId)) return `items[${i}].productId must be a valid UUID`;
+		if (!isPositiveNumber(item.cantidad)) return `items[${i}].cantidad must be a positive number`;
+		if (!isNonNegativeNumber(item.precioUnitario)) {
+			return `items[${i}].precioUnitario must be a non-negative number`;
+		}
+	}
+	if (body.billingAddressId !== undefined && !isUuid(body.billingAddressId)) {
+		return 'billingAddressId must be a valid UUID when provided';
+	}
+	if (body.shippingAddressId !== undefined && !isUuid(body.shippingAddressId)) {
+		return 'shippingAddressId must be a valid UUID when provided';
+	}
+	return null;
+}
+
 export const createSale = async (req: Request, res: Response) => {
 	try {
-		const body = req.body;
+		const err = validateSaleCreate(req.body);
+		if (err) return res.status(400).json({ error: err });
 
-		if (!body.clientId || !body.items) {
-			return res.status(400).json({ error: 'Missing fields' });
-		}
+		const body = req.body;
 
 		// Cliente: se obtiene del módulo de catálogos por HTTP.
 		const client: any = await fetchClient(body.clientId);
@@ -140,6 +169,7 @@ export const createSale = async (req: Request, res: Response) => {
 export const getSale = async (req: Request, res: Response) => {
 	try {
 		const id = req.params.id;
+		if (!isUuid(id)) return res.status(400).json({ error: 'id must be a valid UUID' });
 
 		const sale = await getItem(SALES_TABLE, { id });
 
@@ -167,6 +197,7 @@ export const getSale = async (req: Request, res: Response) => {
 export const downloadSale = async (req: Request, res: Response) => {
 	try {
 		const saleId = req.params.id;
+		if (!isUuid(saleId)) return res.status(400).json({ error: 'id must be a valid UUID' });
 
 		const sale = await getItem(SALES_TABLE, { id: saleId });
 		if (!sale) return res.status(404).json({ message: 'Sale not found' });
